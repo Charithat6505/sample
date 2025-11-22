@@ -121,16 +121,6 @@ git push origin main
 # 5. Deploy!
 ```
 - Free tier available
-- Auto-deploy from GitHub
-- Built-in HTTPS
-
-**Deployment Checklist:**
-- [ ] All tests passing
-- [ ] Model file included
-- [ ] Environment variables configured
-- [ ] CORS enabled
-- [ ] SSL certificate (for production)
-- [ ] Demo video recorded
 
 **Structure:**
 ```
