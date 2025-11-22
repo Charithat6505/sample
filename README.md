@@ -1,468 +1,303 @@
-# Phishing Detection Project - Technical Documentation
+# Phishing URL Detector - Documentation Summary
 
-## Project Overview
-An AI-powered phishing URL detection system that combines machine learning with multi-layered security analysis to identify malicious URLs in real-time. The system analyzes URLs through 5 security layers: ML threat scoring, intelligent feature extraction, secure sandbox fetching, redirect chain analysis, and comprehensive risk assessment.
+## Phase 4: Backend API Development
 
-**Repository:** [https://github.com/Charithat6505/hackathon-phishing-detector](https://github.com/Charithat6505/hackathon-phishing-detector)
+**Purpose:** Build FastAPI server that processes URLs through 5 analysis layers
 
-**Status:** Phases 1-3 Complete | Phases 4-7 In Progress
+**What it does:**
+1. **Feature Extraction** - Analyzes URL patterns (length, characters, suspicious keywords)
+2. **ML Prediction** - Loads trained model and predicts phishing probability (0-100%)
+3. **Redirect Tracking** - Follows URL redirects to find final destination
+4. **Content Fetching** - Safely retrieves page metadata without executing scripts
+5. **Result Combination** - Packages everything into JSON response
 
----
-
-## Phase 1: Dataset Understanding & Exploration
-
-### 1.1 Dataset Information
-- **Source:** Hugging Face Phishing URL Dataset
-- **Total Samples:** 10,000+ URLs (Target: 5,000-10,000 minimum)
-- **Features:**
-  - `url`: The actual URL string
-  - `label`: Binary classification (0 = legitimate, 1 = phishing)
-  - Additional metadata fields
-
-### 1.2 Data Distribution Analysis
-**Class Balance:**
-- Legitimate URLs: ~50%
-- Phishing URLs: ~50%
-- Distribution Status: Balanced dataset (ideal for training)
-
-**URL Characteristics:**
-- Average URL length: 45-85 characters
-- Common protocols: HTTP, HTTPS
-- Domain variations: Regular domains, IP addresses, shortened URLs
-
-### 1.3 Data Cleaning Process
-**Steps Performed:**
-1. **Duplicate Removal:** Eliminated duplicate URLs to prevent data leakage
-2. **Validation:** Removed broken or malformed URLs
-3. **Missing Values:** Handled null/empty values in URL and label columns
-4. **Format Standardization:** Ensured consistent URL formatting
-
-**Cleaning Results:**
-- Initial dataset: 11,430 URLs
-- After cleaning: 10,000 URLs
-- Removed: 1,430 duplicates/invalid entries
-
-### 1.4 Exploratory Data Analysis
-**Key Findings:**
-- Phishing URLs are on average 28% longer than legitimate URLs
-- 73% of phishing URLs use HTTP vs 89% of legitimate URLs use HTTPS
-- Phishing URLs contain 2.3x more special characters (@, -, _)
-- 15% of phishing URLs contain IP addresses vs 0.2% of legitimate URLs
-
----
-
-## Phase 2: Feature Engineering
-
-### 2.1 Feature Categories
-The system extracts **15+ features** from each URL, grouped into 5 categories:
-
-### 2.2 URL Length Features
-| Feature | Description | Phishing Indicator |
-|---------|-------------|-------------------|
-| `url_length` | Total character count | > 75 characters suspicious |
-| `hostname_length` | Domain name length | > 30 characters suspicious |
-| `path_length` | URL path length | > 50 characters suspicious |
-| `subdomain_count` | Number of subdomains | > 3 subdomains suspicious |
-
-**Example:**
+**Key Files:**
 ```
-URL: https://secure-login.verify.paypal-account.com/update/confirm
-- url_length: 62
-- hostname_length: 44
-- subdomain_count: 3 (suspicious!)
+backend/
+├── app.py                     # Main API with /analyze endpoint
+├── utils/
+│   ├── feature_extractor.py   # Extracts 15+ features from URLs
+│   ├── ml_predictor.py        # Loads model, predicts phishing score
+│   ├── redirect_tracker.py    # Follows redirect chains
+│   └── content_fetcher.py     # Fetches page title, status, metadata
+└── models/
+    └── phishing_detector.pkl  # Trained ML model
 ```
 
-### 2.3 Character-Based Features
-| Feature | Description | Threshold |
-|---------|-------------|-----------|
-| `dot_count` | Number of `.` characters | > 4 suspicious |
-| `hyphen_count` | Number of `-` characters | > 3 suspicious |
-| `underscore_count` | Number of `_` characters | > 2 suspicious |
-| `slash_count` | Number of `/` characters | > 5 suspicious |
-| `question_count` | Number of `?` characters | > 2 suspicious |
-| `equal_count` | Number of `=` characters | > 3 suspicious |
-| `at_count` | Number of `@` symbols | ≥ 1 highly suspicious |
-| `ampersand_count` | Number of `&` characters | > 4 suspicious |
-
-**Implementation:**
-```python
-def extract_character_features(url):
-    return {
-        'dot_count': url.count('.'),
-        'hyphen_count': url.count('-'),
-        'underscore_count': url.count('_'),
-        'slash_count': url.count('/'),
-        'question_count': url.count('?'),
-        'equal_count': url.count('='),
-        'at_count': url.count('@'),
-        'ampersand_count': url.count('&')
-    }
-```
-
-### 2.4 Suspicious Pattern Detection
-| Feature | Detection Method | Risk Level |
-|---------|-----------------|------------|
-| `has_ip` | Regex: `\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}` | HIGH |
-| `uses_https` | Check protocol prefix | Medium (if HTTP) |
-| `suspicious_keywords` | Match against keyword list | HIGH |
-| `has_shortener` | Check against shortener domains | Medium |
-
-**Suspicious Keywords List:**
-- Security-related: "verify", "secure", "account", "update", "confirm"
-- Action-related: "login", "signin", "banking", "payment"
-- Urgency-related: "urgent", "suspended", "locked", "expire"
-
-**Example Detection:**
-```
-URL: http://paypal-verify-account.com/login
-Flags:
-✓ Uses HTTP (not HTTPS)
-✓ Contains "paypal" (brand impersonation)
-✓ Contains "verify" (suspicious keyword)
-✓ Contains "account" (suspicious keyword)
-✓ Contains "login" (suspicious keyword)
-Risk Score: HIGH
-```
-
-### 2.5 Domain-Based Features
-| Feature | Description | Calculation |
-|---------|-------------|-------------|
-| `digit_count` | Digits in hostname | Count of 0-9 |
-| `letter_count` | Letters in hostname | Count of a-z, A-Z |
-| `digit_letter_ratio` | Proportion of digits | digits / (digits + letters) |
-| `special_char_count` | Special chars in domain | Count of non-alphanumeric |
-
-**Phishing Indicators:**
-- `digit_letter_ratio` > 0.3: Suspicious
-- `special_char_count` > 2: Suspicious
-
-### 2.6 Obfuscation Detection
-| Feature | Check | Example |
-|---------|-------|---------|
-| `uses_url_shortener` | Domain in shortener list | bit.ly, tinyurl.com, goo.gl |
-| `has_hex_chars` | Hexadecimal encoding | %20, %2F, %3A |
-| `uses_punycode` | IDN homograph attack | xn--paypal-abc.com |
-
-### 2.7 Feature Extraction Pipeline
-**Complete Feature Vector (22 features):**
-```python
-feature_vector = {
-    # Length features (4)
-    'url_length': 62,
-    'hostname_length': 44,
-    'path_length': 18,
-    'subdomain_count': 3,
-    
-    # Character features (8)
-    'dot_count': 5,
-    'hyphen_count': 4,
-    'underscore_count': 0,
-    'slash_count': 3,
-    'question_count': 0,
-    'equal_count': 0,
-    'at_count': 0,
-    'ampersand_count': 0,
-    
-    # Pattern features (4)
-    'has_ip': 0,
-    'uses_https': 0,
-    'suspicious_keywords': 3,
-    'has_shortener': 0,
-    
-    # Domain features (3)
-    'digit_count': 2,
-    'letter_count': 40,
-    'digit_letter_ratio': 0.048,
-    
-    # Obfuscation features (3)
-    'special_char_count': 2,
-    'has_hex_chars': 0,
-    'uses_punycode': 0
+**API Response Example:**
+```json
+{
+  "phishing_score": 87,
+  "risk_level": "HIGH",
+  "features": {...},
+  "redirect_chain": [...],
+  "page_info": {...}
 }
 ```
 
-### 2.8 Feature Importance Analysis
-**Top 10 Most Predictive Features:**
-1. `has_ip` (importance: 0.18)
-2. `suspicious_keywords` (importance: 0.15)
-3. `uses_https` (importance: 0.13)
-4. `url_length` (importance: 0.11)
-5. `subdomain_count` (importance: 0.09)
-6. `dot_count` (importance: 0.08)
-7. `hyphen_count` (importance: 0.07)
-8. `digit_letter_ratio` (importance: 0.06)
-9. `at_count` (importance: 0.05)
-10. `hostname_length` (importance: 0.04)
+---
+
+## Phase 5: Streamlit Frontend Development
+
+**Purpose:** Create user-friendly web interface for URL analysis
+
+**What it does:**
+1. **Input Section** - URL text box + example buttons
+2. **Results Display** - Color-coded risk score (Green/Yellow/Red)
+3. **Detailed Tabs** - ML Analysis, Redirect Chain, Page Info, Recommendations
+4. **History Sidebar** - Shows recent analyses
+
+**Key Features:**
+- Real-time analysis with loading spinner
+- Visual risk indicators (big percentage score)
+- Feature breakdown highlighting suspicious elements
+- Redirect visualization showing URL chain
+- Action recommendations based on risk level
+
+**Structure:**
+```
+frontend/
+├── app.py              # Main Streamlit interface
+└── utils/
+    └── api_client.py   # Calls backend API
+```
 
 ---
 
-## Phase 3: Machine Learning Model Training
+## Phase 6: Integration & Testing
 
-### 3.1 Data Preparation
-**Dataset Split:**
+**Purpose:** Connect frontend to backend and verify everything works
+
+**What it does:**
+1. **API Integration** - Frontend calls backend /analyze endpoint
+2. **Error Handling** - Manages timeouts, connection errors, invalid URLs
+3. **Test Suite** - Automated tests for phishing/legitimate/edge case URLs
+4. **Performance Testing** - Ensures analysis completes in <3 seconds
+
+**Test Categories:**
+- Known phishing URLs (should score HIGH)
+- Legitimate URLs (should score LOW)
+- Edge cases (IP addresses, shortened URLs, long URLs)
+- Error scenarios (empty URL, invalid format)
+
+**Structure:**
 ```
-Total URLs: 10,000
-├── Training Set: 8,000 URLs (80%)
-│   ├── Legitimate: 4,000
-│   └── Phishing: 4,000
-└── Testing Set: 2,000 URLs (20%)
-    ├── Legitimate: 1,000
-    └── Phishing: 1,000
+tests/
+└── test_suite.py      # Comprehensive automated tests
 ```
 
-**Feature Scaling:**
-- Method: StandardScaler
-- Purpose: Normalize features to same scale (mean=0, std=1)
-- Applied to: All numerical features
+---
 
-### 3.2 Model Selection
-**Primary Model: Logistic Regression**
-- **Reasoning:**
-  - Fast training and prediction (< 2 seconds)
-  - Interpretable results (feature coefficients)
-  - Outputs probability scores (0-100%)
-  - Excellent for binary classification
-  - Low computational requirements
+## Phase 7: Deployment
 
-**Alternative Model: Random Forest (Tested)**
-- Higher accuracy (+3%)
-- Longer training time (+5 seconds)
-- Less interpretable
-- Used for comparison/validation
+**Purpose:** Make the app publicly accessible
 
-### 3.3 Model Architecture
-**Logistic Regression Configuration:**
+**Deployment Options:**
+
+### 1. **Local Development**
+```bash
+# Terminal 1: Backend
+uvicorn app:app --reload
+
+# Terminal 2: Frontend
+streamlit run app.py
+```
+
+### 2. **Streamlit Cloud (Frontend)**
+- Push code to GitHub
+- Connect repo at share.streamlit.io
+- Instant public URL
+
+### 3. **Render (Backend)**
+```bash
+# 1. Push to GitHub
+git push origin main
+
+# 2. Go to render.com → New Web Service
+# 3. Connect your GitHub repo
+# 4. Configure:
+#    - Build Command: pip install -r requirements.txt
+#    - Start Command: uvicorn app:app --host 0.0.0.0 --port $PORT
+# 5. Deploy!
+```
+- Free tier available
+- Auto-deploy from GitHub
+- Built-in HTTPS
+
+**Deployment Checklist:**
+- [ ] All tests passing
+- [ ] Model file included
+- [ ] Environment variables configured
+- [ ] CORS enabled
+- [ ] SSL certificate (for production)
+- [ ] Demo video recorded
+
+**Structure:**
+```
+project/
+├── backend/
+│   ├── app.py
+│   ├── utils/
+│   ├── models/
+│   └── requirements.txt
+├── frontend/
+│   ├── app.py
+│   ├── utils/
+│   └── requirements.txt
+└── tests/
+    └── test_suite.py
+```
+
+---
+
+## Render Deployment (Backend)
+
+### Configuration File
+
+**File:** `backend/render.yaml`
+
+```yaml
+services:
+  - type: web
+    name: phishing-detector-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+```
+
+### Step-by-Step Deployment
+
+1. **Prepare Backend**
+```bash
+cd backend
+# Make sure requirements.txt exists
+pip freeze > requirements.txt
+```
+
+2. **Push to GitHub**
+```bash
+git add .
+git commit -m "Ready for Render deployment"
+git push origin main
+```
+
+3. **Deploy on Render**
+- Go to [render.com](https://render.com)
+- Click "New +" → "Web Service"
+- Connect your GitHub repository
+- Select the `backend` directory (or root if backend is at root)
+- Configure:
+  - **Name:** phishing-detector-api
+  - **Environment:** Python 3
+  - **Build Command:** `pip install -r requirements.txt`
+  - **Start Command:** `uvicorn app:app --host 0.0.0.0 --port $PORT`
+- Click "Create Web Service"
+
+4. **Get Your Backend URL**
+- After deployment: `https://phishing-detector-api.onrender.com`
+- Use this URL in your Streamlit frontend
+
+5. **Update Frontend to Use Render Backend**
+
+**File:** `frontend/app.py`
 ```python
-LogisticRegression(
-    solver='lbfgs',
-    max_iter=1000,
-    random_state=42,
-    class_weight='balanced'
-)
+# Change this line:
+BACKEND_URL = "http://localhost:8000"
+
+# To your Render URL:
+BACKEND_URL = "https://phishing-detector-api.onrender.com"
 ```
 
-**Training Process:**
-1. Load preprocessed feature vectors
-2. Apply StandardScaler transformation
-3. Fit model on 8,000 training samples
-4. Validate on 2,000 test samples
-5. Save model and scaler to disk
-
-### 3.4 Model Performance Metrics
-
-**Overall Accuracy: 93.4%**
-
-**Confusion Matrix:**
-```
-                 Predicted
-                 Legit  Phish
-Actual Legit     945    55
-       Phish     77     923
-```
-
-**Detailed Metrics:**
-| Metric | Score | Interpretation |
-|--------|-------|----------------|
-| **Accuracy** | 93.4% | Correctly classified 93.4% of all URLs |
-| **Precision** | 94.4% | When model says "phishing", it's right 94.4% of the time |
-| **Recall** | 92.3% | Catches 92.3% of all actual phishing URLs |
-| **F1-Score** | 93.3% | Balanced performance measure |
-| **False Positive Rate** | 5.5% | 55 legitimate URLs incorrectly flagged |
-| **False Negative Rate** | 7.7% | 77 phishing URLs missed |
-
-### 3.5 Feature Coefficients (Logistic Regression)
-**Positive Indicators (Phishing):**
-- `has_ip`: +2.34 (strongest phishing indicator)
-- `suspicious_keywords`: +1.87
-- `hyphen_count`: +1.23
-- `url_length`: +0.98
-- `subdomain_count`: +0.89
-
-**Negative Indicators (Legitimate):**
-- `uses_https`: -1.67 (strongest legitimacy indicator)
-- `short_url_length`: -0.84
-- `simple_domain`: -0.72
-
-### 3.6 Model Validation
-**Cross-Validation Results (5-fold):**
-- Fold 1: 92.8%
-- Fold 2: 93.1%
-- Fold 3: 93.7%
-- Fold 4: 93.2%
-- Fold 5: 94.0%
-- **Average: 93.4% ± 0.4%**
-
-**Validation on Edge Cases:**
-| URL Type | Sample Size | Accuracy |
-|----------|-------------|----------|
-| IP-based URLs | 150 | 98.7% |
-| URL shorteners | 120 | 89.2% |
-| Subdomain heavy | 200 | 91.5% |
-| International domains | 80 | 87.5% |
-| Very long URLs | 100 | 95.0% |
-
-### 3.7 Model Deployment Preparation
-**Saved Artifacts:**
-1. `phishing_model.pkl` - Trained Logistic Regression model (2.3 MB)
-2. `feature_scaler.pkl` - Fitted StandardScaler (45 KB)
-3. `feature_names.json` - Feature order/metadata (2 KB)
-
-**Loading for Production:**
-```python
-import joblib
-
-# Load model and scaler
-model = joblib.load('phishing_model.pkl')
-scaler = joblib.load('feature_scaler.pkl')
-
-# Predict new URL
-features = extract_features(url)
-scaled_features = scaler.transform([features])
-probability = model.predict_proba(scaled_features)[0][1]
-prediction = "PHISHING" if probability > 0.5 else "LEGITIMATE"
-```
-
-### 3.8 Performance Benchmarks
-**Prediction Speed:**
-- Feature extraction: 0.03 seconds
-- Model inference: 0.01 seconds
-- **Total time per URL: 0.04 seconds**
-- **Throughput: 25 URLs/second**
-
-**Resource Requirements:**
-- Memory: ~15 MB (model + scaler loaded)
-- CPU: Single-core sufficient
-- GPU: Not required
+### Render Free Tier Notes
+- ✅ Free HTTPS included
+- ✅ Auto-deploy on git push
+- ⚠️ Spins down after 15 min of inactivity (first request may take 30s)
+- ⚠️ 750 hours/month free
 
 ---
 
-## Technical Stack (Phases 1-3)
+### Quick Start Guide
 
-### Languages & Frameworks
-- **Python 3.8+**
-- **NumPy** - Numerical computations
-- **Pandas** - Data manipulation
-- **Scikit-learn** - Machine learning
+### Run Locally
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
 
-### Libraries Used
-```python
-# Data Processing
-import pandas as pd
-import numpy as np
-from urllib.parse import urlparse
+# 2. Start backend (Terminal 1)
+cd backend
+uvicorn app:app --reload --port 8000
 
-# Machine Learning
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (
-    accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    confusion_matrix
-)
+# 3. Start frontend (Terminal 2)  
+cd frontend
+streamlit run app.py
 
-# Model Persistence
-import joblib
+# 4. Open browser: http://localhost:8501
+```
 
-# Pattern Matching
-import re
+### Deploy to Cloud
+```bash
+# 1. Push to GitHub
+git push origin main
+
+# 2. Deploy Backend to Render
+# - Go to render.com
+# - New Web Service → Connect GitHub repo
+# - Build: pip install -r requirements.txt
+# - Start: uvicorn app:app --host 0.0.0.0 --port $PORT
+
+# 3. Deploy Frontend to Streamlit Cloud
+# - Go to share.streamlit.io
+# - Connect GitHub repo
+# - Update BACKEND_URL to your Render URL
 ```
 
 ---
 
-## Next Steps (Phases 4-7)
+## File Overview
 
-### Phase 4: Backend API Development
-- FastAPI server implementation
-- `/analyze` endpoint for URL analysis
-- Redirect chain tracking
-- Secure sandbox fetching
-- Response formatting
-
-### Phase 5: Frontend Interface
-- Streamlit web application
-- URL input interface
-- Real-time analysis display
-- Risk visualization
-- History tracking
-
-### Phase 6: Integration & Testing
-- Connect frontend to backend
-- End-to-end testing
-- Edge case validation
-- Performance optimization
-
-### Phase 7: Deployment
-- Streamlit Cloud deployment
-- GitHub repository finalization
-- Documentation completion
-- Demo preparation
+| Phase | File | Purpose |
+|-------|------|---------|
+| **4** | `backend/app.py` | Main API with /analyze endpoint |
+| **4** | `utils/feature_extractor.py` | Extract URL features |
+| **4** | `utils/ml_predictor.py` | ML model predictions |
+| **4** | `utils/redirect_tracker.py` | Follow redirects |
+| **4** | `utils/content_fetcher.py` | Fetch page metadata |
+| **5** | `frontend/app.py` | Streamlit UI |
+| **5** | `utils/api_client.py` | API communication |
+| **6** | `tests/test_suite.py` | Automated tests |
+| **7** | `render.yaml` | Render deployment config |
+| **7** | `requirements.txt` | Python dependencies |
 
 ---
 
-## Project Timeline
+## Key Technologies
 
-| Phase | Duration | Status |
-|-------|----------|--------|
-| Phase 1: Dataset Exploration | 2 hours | ✅ Complete |
-| Phase 2: Feature Engineering | 3 hours | ✅ Complete |
-| Phase 3: Model Training | 4 hours | ✅ Complete |
-| Phase 4: Backend API | 4 hours | 🔄 In Progress |
-| Phase 5: Frontend | 3 hours | ⏳ Pending |
-| Phase 6: Integration | 3 hours | ⏳ Pending |
-| Phase 7: Deployment | 2 hours | ⏳ Pending |
+**Backend:**
+- FastAPI (API framework)
+- scikit-learn (ML model)
+- requests (HTTP client)
+- BeautifulSoup (HTML parsing)
 
-**Total Progress: 9/21 hours (42% complete)**
+**Frontend:**
+- Streamlit (Web framework)
+- pandas (Data display)
+- plotly (Visualizations)
 
----
-
-## Key Achievements
-
-✅ Cleaned and analyzed 10,000+ URL dataset
-✅ Engineered 22 predictive features
-✅ Trained model with **93.4% accuracy**
-✅ Achieved **<0.04s prediction time**
-✅ Created robust feature extraction pipeline
-✅ Validated model on diverse URL types
-✅ Prepared production-ready model artifacts
+**Deployment:**
+- Render (Backend hosting)
+- Streamlit Cloud (Frontend hosting)
+- GitHub (Version control)
 
 ---
 
-## Repository Structure
-```
-hackathon-phishing-detector/
-├── data/
-│   ├── phishing_urls.csv          # Raw dataset
-│   └── processed_features.csv     # Extracted features
-├── models/
-│   ├── phishing_model.pkl         # Trained model
-│   ├── feature_scaler.pkl         # Feature scaler
-│   └── feature_names.json         # Feature metadata
-├── notebooks/
-│   ├── 01_data_exploration.ipynb  # Phase 1
-│   ├── 02_feature_engineering.ipynb # Phase 2
-│   └── 03_model_training.ipynb    # Phase 3
-├── src/
-│   ├── feature_extraction.py      # Feature engineering
-│   ├── model_training.py          # Model training
-│   └── utils.py                   # Helper functions
-├── requirements.txt
-└── README.md
-```
+## Time Estimates
 
----
+- **Phase 4**: 3-4 hours (Backend development)
+- **Phase 5**: 2-3 hours (Frontend development)
+- **Phase 6**: 2-3 hours (Testing & integration)
+- **Phase 7**: 1-2 hours (Deployment)
 
-## Contact & Contribution
-**Repository:** [github.com/Charithat6505/hackathon-phishing-detector](https://github.com/Charithat6505/hackathon-phishing-detector)
-
-**Contributors:** Charithat6505
-
-**Status:** Active Development - Phases 4-7 In Progress
-
----
-
-*Last Updated: November 21, 2024*
-*Documentation Version: 1.0*
+**Total**: 8-12 hours
